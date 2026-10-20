@@ -91,11 +91,31 @@ AUTH_PASSWORD_VALIDATORS = [{"NAME": f"django.contrib.auth.password_validation.{
 LANGUAGE_CODE = "en-us"; TIME_ZONE = "UTC"; USE_I18N = True; USE_TZ = True
 
 # ---------------------------------------------------------------- database
-# DATABASE_URL (Render Postgres, etc.) wins. Without it we fall back to SQLite, which is fine locally but is wiped on every Render deploy.
+# # DATABASE_URL (Render Postgres / Supabase)
 if os.environ.get("DATABASE_URL"):
-    DATABASES = {"default": dj_database_url.parse(os.environ["DATABASE_URL"], conn_max_age=env_int("DB_CONN_MAX_AGE", 600), conn_health_checks=True, ssl_require=env_bool("DATABASE_SSL_REQUIRE", False))}
+    DATABASES = {
+        "default": dj_database_url.parse(
+            os.environ["DATABASE_URL"],
+            conn_max_age=env_int("DB_CONN_MAX_AGE", 600),
+            conn_health_checks=True,
+            ssl_require=env_bool("DATABASE_SSL_REQUIRE", False),
+        )
+    }
+
+    # Explicitly ensure the database name is present
+    if not DATABASES["default"].get("NAME"):
+        DATABASES["default"]["NAME"] = "postgres"
+
 else:
-    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": os.environ.get("SQLITE_PATH", BASE_DIR / "db.sqlite3")}}
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": os.environ.get(
+                "SQLITE_PATH",
+                BASE_DIR / "db.sqlite3",
+            ),
+        }
+    }
 
 # ---------------------------------------------------------------- static + media storage
 STATIC_URL = "/static/"; STATIC_ROOT = BASE_DIR / "staticfiles"
