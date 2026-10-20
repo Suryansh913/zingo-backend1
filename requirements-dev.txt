@@ -1,0 +1,4 @@
+-r requirements.txt
+aiortc>=1.9        # real WebRTC media test (core/test_match_media.py)
+moto[server]>=5    # fake S3 server for the storage end-to-end test (core/test_s3_storage.py)
+requests>=2.31

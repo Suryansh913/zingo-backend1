@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+db.sqlite3
+media
+staticfiles
+__pycache__
+*.pyc
+.zingo_date_backup_*
