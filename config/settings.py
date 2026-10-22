@@ -91,71 +91,43 @@ AUTH_PASSWORD_VALIDATORS = [{"NAME": f"django.contrib.auth.password_validation.{
 LANGUAGE_CODE = "en-us"; TIME_ZONE = "UTC"; USE_I18N = True; USE_TZ = True
 
 # ---------------------------------------------------------------- database
-# # DATABASE_URL (Render Postgres / Supabase)
+# DATABASE_URL (Render Postgres, etc.) wins. Without it we fall back to SQLite, which is fine locally but is wiped on every Render deploy.
 if os.environ.get("DATABASE_URL"):
-    DATABASES = {
-        "default": dj_database_url.parse(
-            os.environ["DATABASE_URL"],
-            conn_max_age=0,
-            conn_health_checks=True,
-            ssl_require=env_bool("DATABASE_SSL_REQUIRE", False),
-        )
-    }
-
-    # Explicitly ensure the database name is present
-    if not DATABASES["default"].get("NAME"):
-        DATABASES["default"]["NAME"] = "postgres"
-
+    DATABASES = {"default": dj_database_url.parse(os.environ["DATABASE_URL"], conn_max_age=env_int("DB_CONN_MAX_AGE", 600), conn_health_checks=True, ssl_require=env_bool("DATABASE_SSL_REQUIRE", False))}
 else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": os.environ.get(
-                "SQLITE_PATH",
-                BASE_DIR / "db.sqlite3",
-            ),
-        }
-    }
+    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": os.environ.get("SQLITE_PATH", BASE_DIR / "db.sqlite3")}}
 
 # ---------------------------------------------------------------- static + media storage
+STATIC_URL = "/static/"; STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_URL = "/media/"; MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))   # only used for local storage (point at a persistent disk in production)
+STORAGES = {"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+            "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"}}
+S3_BUCKET = os.environ.get("AWS_STORAGE_BUCKET_NAME", "")
+MEDIA_PUBLIC_READ = env_bool("MEDIA_PUBLIC_READ", False)   # S3 only: False = private bucket + time-limited signed URLs (respects video/photo privacy)
 
-# Static files remain on WhiteNoise
-STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
-
-# Cloudinary credentials from Render Environment Variables
-CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "")
-CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "")
-CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "")
-
-CLOUDINARY_CONFIGURED = bool(
-    CLOUDINARY_CLOUD_NAME
-    and CLOUDINARY_API_KEY
-    and CLOUDINARY_API_SECRET
-)
-
-STORAGES = {
-    "default": {
-        "BACKEND": (
-            "cloudinary_storage.storage.MediaCloudinaryStorage"
-            if CLOUDINARY_CONFIGURED
-            else "django.core.files.storage.FileSystemStorage"
-        ),
-    },
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
-    },
-}
-
-USES_CLOUDINARY = CLOUDINARY_CONFIGURED
-USES_S3 = False
-
-MEDIA_URL = "/media/"
-MEDIA_ROOT = Path(
-    os.environ.get("MEDIA_ROOT", BASE_DIR / "media")
-)
-SERVE_LOCAL_MEDIA = env_bool("SERVE_LOCAL_MEDIA", True)
-   # serve /media/ (with HTTP Range) when using local storage
+# --- Cloudinary: either CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>  OR the three separate variables ---
+CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")
+_cn = os.environ.get("CLOUDINARY_CLOUD_NAME") or os.environ.get("CLOUD_NAME", "")
+_ck = os.environ.get("CLOUDINARY_API_KEY") or os.environ.get("API_KEY", "")
+_cs = os.environ.get("CLOUDINARY_API_SECRET") or os.environ.get("API_SECRET", "")
+USE_CLOUDINARY = bool(CLOUDINARY_URL or (_cn and _ck and _cs))
+CLOUDINARY_DELIVERY = os.environ.get("CLOUDINARY_DELIVERY", "upload")   # "upload" (public random URLs, default) or "authenticated" (signed URLs; needs plan support)
+# Which provider stores uploads: Cloudinary > S3-compatible > local disk. (If both are configured, Cloudinary wins, so leftover AWS_* variables are harmless.)
+STORAGE_KIND = "cloudinary" if USE_CLOUDINARY else ("s3" if S3_BUCKET else "local")
+if STORAGE_KIND == "cloudinary":
+    STORAGES["default"] = {"BACKEND": "core.cloudinary_storage.CloudinaryStorage", "OPTIONS": {
+        "delivery": CLOUDINARY_DELIVERY, "folder": os.environ.get("CLOUDINARY_FOLDER", "zingo"),
+        **({} if CLOUDINARY_URL else {"cloud_name": _cn, "api_key": _ck, "api_secret": _cs})}}
+elif STORAGE_KIND == "s3":   # any S3-compatible service: AWS S3, Cloudflare R2, Backblaze B2, Supabase Storage, MinIO...
+    STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage", "OPTIONS": {
+        "bucket_name": S3_BUCKET, "access_key": os.environ.get("AWS_ACCESS_KEY_ID", ""), "secret_key": os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
+        "endpoint_url": os.environ.get("AWS_S3_ENDPOINT_URL") or None, "region_name": os.environ.get("AWS_S3_REGION_NAME") or None,
+        "signature_version": "s3v4", "addressing_style": os.environ.get("AWS_S3_ADDRESSING_STYLE", "auto"),
+        "querystring_auth": not MEDIA_PUBLIC_READ, "querystring_expire": env_int("MEDIA_URL_EXPIRE_SECONDS", 6 * 3600),
+        "custom_domain": (os.environ.get("AWS_S3_CUSTOM_DOMAIN") or None) if MEDIA_PUBLIC_READ else None,
+        "file_overwrite": False, "default_acl": None, "object_parameters": {"CacheControl": "max-age=31536000"}}}
+USES_S3 = STORAGE_KIND != "local"   # historical name: True for ANY remote object storage (Cloudinary or S3)
+SERVE_LOCAL_MEDIA = env_bool("SERVE_LOCAL_MEDIA", True)   # serve /media/ (with HTTP Range) when using local storage
 
 # Uploads
 MAX_VIDEO_MB = env_int("MAX_VIDEO_MB", 100)
