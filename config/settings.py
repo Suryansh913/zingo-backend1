@@ -118,22 +118,44 @@ else:
     }
 
 # ---------------------------------------------------------------- static + media storage
-STATIC_URL = "/static/"; STATIC_ROOT = BASE_DIR / "staticfiles"
-MEDIA_URL = "/media/"; MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))   # only used for local storage (point at a persistent disk in production)
-STORAGES = {"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
-            "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"}}
-S3_BUCKET = os.environ.get("AWS_STORAGE_BUCKET_NAME", "")
-MEDIA_PUBLIC_READ = env_bool("MEDIA_PUBLIC_READ", False)   # False = private bucket + time-limited signed URLs (respects video/photo privacy)
-if S3_BUCKET:   # any S3-compatible service: AWS S3, Cloudflare R2, Backblaze B2, Supabase Storage, MinIO...
-    STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage", "OPTIONS": {
-        "bucket_name": S3_BUCKET, "access_key": os.environ.get("AWS_ACCESS_KEY_ID", ""), "secret_key": os.environ.get("AWS_SECRET_ACCESS_KEY", ""),
-        "endpoint_url": os.environ.get("AWS_S3_ENDPOINT_URL") or None, "region_name": os.environ.get("AWS_S3_REGION_NAME") or None,
-        "signature_version": "s3v4", "addressing_style": os.environ.get("AWS_S3_ADDRESSING_STYLE", "auto"),
-        "querystring_auth": not MEDIA_PUBLIC_READ, "querystring_expire": env_int("MEDIA_URL_EXPIRE_SECONDS", 6 * 3600),
-        "custom_domain": (os.environ.get("AWS_S3_CUSTOM_DOMAIN") or None) if MEDIA_PUBLIC_READ else None,
-        "file_overwrite": False, "default_acl": None, "object_parameters": {"CacheControl": "max-age=31536000"}}}
-USES_S3 = bool(S3_BUCKET)
-SERVE_LOCAL_MEDIA = env_bool("SERVE_LOCAL_MEDIA", True)   # serve /media/ (with HTTP Range) when using local storage
+
+# Static files remain on WhiteNoise
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# Cloudinary credentials from Render Environment Variables
+CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "")
+CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "")
+CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "")
+
+CLOUDINARY_CONFIGURED = bool(
+    CLOUDINARY_CLOUD_NAME
+    and CLOUDINARY_API_KEY
+    and CLOUDINARY_API_SECRET
+)
+
+STORAGES = {
+    "default": {
+        "BACKEND": (
+            "cloudinary_storage.storage.MediaCloudinaryStorage"
+            if CLOUDINARY_CONFIGURED
+            else "django.core.files.storage.FileSystemStorage"
+        ),
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
+
+USES_CLOUDINARY = CLOUDINARY_CONFIGURED
+USES_S3 = False
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = Path(
+    os.environ.get("MEDIA_ROOT", BASE_DIR / "media")
+)
+SERVE_LOCAL_MEDIA = env_bool("SERVE_LOCAL_MEDIA", True)
+   # serve /media/ (with HTTP Range) when using local storage
 
 # Uploads
 MAX_VIDEO_MB = env_int("MAX_VIDEO_MB", 100)

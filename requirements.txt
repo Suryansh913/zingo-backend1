@@ -9,3 +9,5 @@ dj-database-url>=2.2
 psycopg[binary]>=3.2
 django-storages[s3]>=1.14
 Pillow>=10
+cloudinary
+django-cloudinary-storage

@@ -34,4 +34,13 @@ urlpatterns = [
     path("api/", include(r.urls)),
 ]
 # Local media (with Range support) is only routed when files live on local disk; with S3-compatible storage the API returns bucket URLs instead.
-if not settings.USES_S3 and settings.SERVE_LOCAL_MEDIA: urlpatterns.append(re_path(r"^media/(?P<path>.*)$", media.serve_media))
+
+# Serve /media/ locally only when using local filesystem storage.
+if (
+    not settings.USES_S3
+    and not settings.USES_CLOUDINARY
+    and settings.SERVE_LOCAL_MEDIA
+):
+    urlpatterns.append(
+        re_path(r"^media/(?P<path>.*)$", media.serve_media)
+    )
